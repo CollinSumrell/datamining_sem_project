@@ -12,7 +12,8 @@ COHORTS = {
 }
 
 # pick types of mutations we want to keep
-# (silent and non-coding mutations 
+# (silent and non-coding mutations are excluded
+# since they are prob not relevant biologically)
 NONSYNONYMOUS = [
     "Missense_Mutation",
     "Nonsense_Mutation",
