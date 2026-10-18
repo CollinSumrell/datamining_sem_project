@@ -78,7 +78,7 @@ def main():
 
     # save pairs of sample and cohort labels
     labels = []
-    for label, study in matrices.items():
+    for label, matrix in matrices.items():
         for sample in matrix.index:
             labels.append({"sample": sample, "cohort": label})
     labels_path = os.path.join(OUTPUT_DIR, "sample_labels.csv")

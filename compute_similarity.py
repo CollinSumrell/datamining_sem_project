@@ -9,11 +9,28 @@ TOP_N_GENES = 10
 
 def load_data():
     # for loading the data from csv into a df
-    raise NotImplementedError
+    X = pd.read_csv(os.path.join(OUTPUT_DIR, "combined_matrix.csv"), index_col=0)
+    labels = pd.read_csv(os.path.join(OUTPUT_DIR, "sample_labels.csv"), index_col="sample")
+    cohorts = labels.loc[X.index, "cohort"]
+    return X, cohorts
 
 def summarize_cohorts(X, cohorts, order):
     # basic counts (mutation burden)
-    raise NotImplementedError
+    burden = X.sum(axis=1)
+    rows = []
+    for c in order:
+        in_cohort = cohorts == c
+        b = burden[in_cohort]
+        rows.append({
+            "cohort": c,
+            "tumors": len(b),
+            "genes_mutated_in_any_tumor": int((X[in_cohort].sum(axis=0) > 0).sum()),
+            "median_genes_per_tumor": b.median(),
+            "mean_genes_per_tumor": round(b.mean(), 1),
+            "max_genes_per_tumor": b.max(),
+            "tumors_with_no_mutations": int((b ==0).sum()),
+        })
+    return pd.DataFrame(rows), burden
 
 def top_genes(X, cohorts, order):
     # top however many genes in each cohort
@@ -21,11 +38,24 @@ def top_genes(X, cohorts, order):
 
 def jaccard_matrix(X):
     # jaccard similarity matrix for every pair of tumors
-    raise NotImplementedError
+    A = X.to_numpy(dtype=np.float32)
+    shared = A @ A.T
+    counts = A.sum(axis=1)
+    union = counts[:, None] + counts[None, :] - shared
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sim = shared / union
+    np.fill_diagonal(sim, np.nan)
+    return sim
 
 def similarity_by_cohort(sim, labels, order):
     # mean similarity for every pair of cohorts
-    raise NotImplementedError
+    table = pd.DataFrame(index=order, columns=order, dtype=float)
+    for a in order:
+        for b in order:
+            block = sim[np.ix_(labels == a, labels == b)]
+            table.loc[a, b] = np.nanmean(block)
+    return table
 
 def within_between_values(sim, labels, c):
     # all within type pair similarities for cohort c
@@ -40,7 +70,54 @@ def plot_burden(burden, cohorts, order):
     raise NotImplementedError
 
 def plot_heatmap(table):
-    raise NotImplementedError
+    plt.figure(figsize=(5,4))
+    plt.imshow(table.to_numpy(), cmap="Blues")
+    plt.colorbar(label="Mean Jaccard similarity")
+    plt.xticks(range(len(table)), table.columns)
+    plt.yticks(range(len(table)), table.index)
+    halfway = table.to_numpy().max() / 2
+    for i in range(len(table)):
+        for j in range(len(table)):
+            value = table.iloc[i, j]
+            color = "white" if value > halfway else "black"
+            plt.text(j, i, f"{value:.4f}", ha="center", va="center", fontsize=9, color=color)
+    plt.title("Mean similarity between cancer types")
+    plt.tight_layout()
+    plt.savefig(os.path.join(FIG_DIR, "similarity_heatmap.png"), dpi=300)
+    plt.close()
 
 def plot_within_between(sim, labels, order):
     raise NotImplementedError
+
+def main():
+    os.makedirs(FIG_DIR, exist_ok=True)
+
+    X, cohorts = load_data()
+    order = list(cohorts.unique())
+    labels = cohorts.to_numpy()
+    print(f"Loaded {X.shape[0]} samples and {X.shape[1]} genes from {len(order)} cohorts")
+
+    stats, burden = summarize_cohorts(X, cohorts, order)
+    stats.to_csv(os.path.join(OUTPUT_DIR, "cohort_stats.csv"), index=False)
+    print("\nDescriptive stats:\n", stats.to_string(index=False))
+
+    # top_genes(X, cohorts, order).to_csv(os.path.join(OUTPUT_DIR, "top_genes.csv"), index=False)
+
+    sim = jaccard_matrix(X)
+
+    table = similarity_by_cohort(sim, labels, order)
+    table.round(4).to_csv(os.path.join(OUTPUT_DIR, "similarity_by_cohort.csv"))
+    print("\nMean similarty by cohort pair:\n", table.round(4).to_string())
+
+    # summary = within_vs_between(sim,labels, order)
+    # summary.to_csv(os.path.join(OUTPUT_DIR, "within_vs_between.csv"), index=False)
+    # print("\nWithin vs between:\n", summary.to_string(index=False))
+
+    # plot_burden(burden, cohorts, order)
+    plot_heatmap(table)
+    # plot_within_between(sim, labels, order)
+    # print(f"\nfigs saved to {FIG_DIR}/")
+
+if __name__ == "__main__":
+    main()
+
