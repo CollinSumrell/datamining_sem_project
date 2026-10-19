@@ -126,6 +126,7 @@ def within_vs_between(sim, labels, order):
 def plot_burden(burden, cohorts, order):
     plt.figure(figsize=(6, 4))
     plt.boxplot([burden[cohorts == c] for c in order])
+    plt.yscale("symlog", linthresh=1)  
     plt.xticks(range(1, len(order) + 1), order)
     plt.ylabel("Genes mutated per tumor")
     plt.title("Mutation burden by cancer type")
