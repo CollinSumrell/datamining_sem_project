@@ -41,7 +41,19 @@ def top_genes(X, cohorts, order):
     # returns a dataframe with 40 rows (4 cohorts x 10 genes) and 4 columns (cohort e.g. COAD, rank 1-10 within
     # that cohort, gene name, and fraction of tumors mutated (share of that cohort's tumros with that gene mutated 
     # as a decimal 0-1))
-    raise NotImplementedError
+    rows = []
+    for c in order:
+        sub = X[cohorts == c]
+        frac = (sub > 0).mean(axis=0)
+        frac = frac.sort_values(ascending=False, kind="mergesort")
+        for rank, (gene, value) in enumerate(frac.head(TOP_N_GENES).items(), start=1):
+            rows.append({
+                "cohort": c,
+                "rank": rank,
+                "gene": gene,
+                "fraction_mutated": round(float(value), 4),})
+    return pd.DataFrame(rows, columns=["cohort", "rank", "gene", "fraction_mutated"])
+
 
 def jaccard_matrix(X):
     # jaccard similarity matrix for every pair of tumors
@@ -49,7 +61,6 @@ def jaccard_matrix(X):
     shared = A @ A.T
     counts = A.sum(axis=1)
     union = counts[:, None] + counts[None, :] - shared
-
     with np.errstate(divide="ignore", invalid="ignore"):
         sim = shared / union
     np.fill_diagonal(sim, np.nan)
@@ -76,7 +87,14 @@ def within_between_values(sim, labels, c):
     # between holds the similarity of every pair where one tumor is type c and the other
     # is not. 
     # order of values doesnt matter, just a helper for within_vs_between and plot_within_between
-    raise NotImplementedError
+    labels = np.asarray(labels)
+    is_c = labels == c
+    idx = np.flatnonzero(is_c)
+    block = sim[np.ix_(idx, idx)]
+    within = block[np.triu_indices(len(idx), k=1)]
+    between = sim[np.ix_(idx, np.flatnonzero(~is_c))].ravel()
+    return within[~np.isnan(within)], between[~np.isnan(between)]
+ 
 
 def within_vs_between(sim, labels, order):
     # sim, labels, and order defined as above.
@@ -86,10 +104,36 @@ def within_vs_between(sim, labels, order):
     # returned by within_between_values(sim, labels, c))
     # mean_between, same as mean_within but for between
     # within_minus_between, which is just mean_within minus mean_between for that cohort
-    raise NotImplementedError
+    rows = []
+    all_within, all_between = [], []
+ 
+    for c in order:
+        within, between = within_between_values(sim, labels, c)
+        all_within.append(within)
+        all_between.append(between)
+        rows.append({
+            "cohort": c,
+            "mean_within": within.mean(),
+            "mean_between": between.mean(),})
+    rows.append({
+        "cohort": "ALL",
+        "mean_within": np.concatenate(all_within).mean(),
+        "mean_between": np.concatenate(all_between).mean(),})
+    summary = pd.DataFrame(rows)
+    summary["within_minus_between"] = summary["mean_within"] - summary["mean_between"]
+    return summary.round(4)
 
 def plot_burden(burden, cohorts, order):
-    raise NotImplementedError
+    plt.figure(figsize=(6, 4))
+    plt.boxplot([burden[cohorts == c] for c in order])
+    plt.xticks(range(1, len(order) + 1), order)
+    plt.ylabel("Genes mutated per tumor")
+    plt.title("Mutation burden by cancer type")
+    plt.tight_layout()
+    plt.savefig(os.path.join(FIG_DIR, "mutation_burden.png"), dpi=300)
+    plt.close()
+
+ 
 
 def plot_heatmap(table):
     plt.figure(figsize=(5,4))
@@ -109,7 +153,19 @@ def plot_heatmap(table):
     plt.close()
 
 def plot_within_between(sim, labels, order):
-    raise NotImplementedError
+    summary = within_vs_between(sim, labels, order)
+    rows = summary[summary.cohort != "ALL"]
+    x = np.arange(len(rows))
+    plt.figure(figsize=(6, 4))
+    plt.bar(x - 0.2, rows["mean_within"], 0.4, label="Within cohort")
+    plt.bar(x + 0.2, rows["mean_between"], 0.4, label="Between cohorts")
+    plt.xticks(x, rows["cohort"])
+    plt.ylabel("Mean Jaccard similarity")
+    plt.title("Within- vs between-cohort tumor similarity")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(FIG_DIR, "within_vs_between.png"), dpi=300)
+    plt.close()
 
 def main():
     os.makedirs(FIG_DIR, exist_ok=True)
@@ -123,7 +179,7 @@ def main():
     stats.to_csv(os.path.join(OUTPUT_DIR, "cohort_stats.csv"), index=False)
     print("\nDescriptive stats:\n", stats.to_string(index=False))
 
-    # top_genes(X, cohorts, order).to_csv(os.path.join(OUTPUT_DIR, "top_genes.csv"), index=False)
+    top_genes(X, cohorts, order).to_csv(os.path.join(OUTPUT_DIR, "top_genes.csv"), index=False)
 
     sim = jaccard_matrix(X)
 
@@ -131,14 +187,14 @@ def main():
     table.round(4).to_csv(os.path.join(OUTPUT_DIR, "similarity_by_cohort.csv"))
     print("\nMean similarty by cohort pair:\n", table.round(4).to_string())
 
-    # summary = within_vs_between(sim, labels, order)
-    # summary.to_csv(os.path.join(OUTPUT_DIR, "within_vs_between.csv"), index=False)
-    # print("\nWithin vs between:\n", summary.to_string(index=False))
+    summary = within_vs_between(sim, labels, order)
+    summary.to_csv(os.path.join(OUTPUT_DIR, "within_vs_between.csv"), index=False)
+    print("\nWithin vs between:\n", summary.to_string(index=False))
 
-    # plot_burden(burden, cohorts, order)
+    plot_burden(burden, cohorts, order)
     plot_heatmap(table)
-    # plot_within_between(sim, labels, order)
-    # print(f"\nfigs saved to {FIG_DIR}/")
+    plot_within_between(sim, labels, order)
+    print(f"\nfigs saved to {FIG_DIR}/")
 
 if __name__ == "__main__":
     main()
