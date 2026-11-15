@@ -8,6 +8,8 @@ OUTPUT_DIR = "output"
 FIG_DIR = os.path.join(OUTPUT_DIR, "figures")
 TOP_N_GENES = 10
 DEFAULT_MATRIX = os.path.join(OUTPUT_DIR, "combined_matrix.csv")
+GENE_LENGTHS = os.path.join(OUTPUT_DIR, "features", "gene_lengths.csv")
+MIN_CDS_LENGTH = 300
 
 def load_data(matrix_path=DEFAULT_MATRIX):
     # for loading the data from csv into a df
@@ -72,6 +74,13 @@ def jaccard_matrix(X, weights=None):
         sim = shared / union
     np.fill_diagonal(sim, np.nan)
     return sim
+
+def length_weights(genes):
+    lengths = pd.read_csv(GENE_LENGTHS, index_col="gene")["cds_length"]
+    lengths = lengths.reindex(genes)
+    lengths = lengths.fillna(lengths.median())
+    lengths = lengths.clip(lower=MIN_CDS_LENGTH)
+    return 1 / lengths.to_numpy()
 
 def similarity_by_cohort(sim, labels, order):
     # mean similarity for every pair of cohorts
@@ -176,13 +185,21 @@ def plot_within_between(sim, labels, order, fig_dir=FIG_DIR):
     plt.close()
 
 def main():
-    if len(sys.argv) > 1:
-        matrix_path = sys.argv[1]
+    weighted = "--weighted" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--weighted"]
+    if args:
+        matrix_path = args[0]
         name = os.path.basename(matrix_path).replace("_matrix.csv", "")
+    else:
+        matrix_path = DEFAULT_MATRIX
+        name = "all_genes"
+    if weighted:
+        name += "_length_weighted"
+
+    if args or weighted:
         results_dir = os.path.join(OUTPUT_DIR, "results", name)
         fig_dir = os.path.join(results_dir, "figures")
     else:
-        matrix_path = DEFAULT_MATRIX
         results_dir = OUTPUT_DIR
         fig_dir = FIG_DIR
     os.makedirs(fig_dir, exist_ok=True)
@@ -198,7 +215,8 @@ def main():
 
     top_genes(X, cohorts, order).to_csv(os.path.join(results_dir, "top_genes.csv"), index=False)
 
-    sim = jaccard_matrix(X)
+    weights = length_weights(X.columns) if weighted else None
+    sim = jaccard_matrix(X, weights)
 
     table = similarity_by_cohort(sim, labels, order)
     table.round(4).to_csv(os.path.join(results_dir, "similarity_by_cohort.csv"))
