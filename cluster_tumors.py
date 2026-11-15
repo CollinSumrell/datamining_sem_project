@@ -1,12 +1,12 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from compute_similarity import jaccard_matrix, length_weights, OUTPUT_DIR, DEFAULT_MATRIX
 
-OUTPUT_DIR = "output"
 OUT_DIR = os.path.join(OUTPUT_DIR, "clustering")
 FIG_DIR = os.path.join(OUT_DIR, "figures")
-MATRIX_PATH = os.path.join(OUTPUT_DIR, "combined_matrix.csv")
 
 # k=4 is the number of cancer types. the other values are for the silhouette curve
 KS = [2, 3, 4, 5, 6, 7, 8]
@@ -27,18 +27,18 @@ K_METHODS = [
 ]
 
 
-def load_matrix():
+def load_matrix(matrix_path=DEFAULT_MATRIX):
     # samples are rows, genes are columns. cancer type is not loaded
-    if not os.path.exists(MATRIX_PATH):
-        print(f"Matrix not found: {MATRIX_PATH}")
+    if not os.path.exists(matrix_path):
+        print(f"Matrix not found: {matrix_path}")
         print("Run python mutation_matrices.py first.")
         return None
-    X = pd.read_csv(MATRIX_PATH, index_col=0)
+    X = pd.read_csv(matrix_path, index_col=0)
     if X.index.duplicated().any():
         print("some samples are duplicated???")
     return X
 
-def jaccard_distance(X):
+def jaccard_distance(X, weighted=False):
     # pairwise jaccard distance for a 0/1 sample-by-gene matrix.
     # same shared/union formula as jaccard_matrix in compute_similarity.py,
     # then distance = 1 - similarity. diagonal is 0.
@@ -46,18 +46,11 @@ def jaccard_distance(X):
     # an empty tumor and a non-empty tumor have distance 1.
     # compute_similarity.py leaves those empty pairs as NaN, so this does not call it.
     # returns a square float64 array in the same row order as X
-    A = np.asarray(X, dtype=np.float64)
-    if A.ndim != 2 or not np.isin(A, [0.0, 1.0]).all():
-        raise ValueError("jaccard_distance expects a 0/1 sample-by-gene matrix")
-
-    shared = A @ A.T
-    counts = A.sum(axis=1)
-    union = counts[:, None] + counts[None, :] - shared
+    weights = length_weights(X.columns) if weighted else None
+    similarity = jaccard_matrix(X, weights).astype(np.float64)
+    counts = np.asarray(X).sum(axis=1)
     both_empty = (counts[:, None] == 0) & (counts[None, :] == 0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        similarity = shared / union
     similarity[both_empty] = 1.0
-    np.fill_diagonal(similarity, 1.0)
     dist = 1.0 - similarity
     dist = (dist + dist.T) / 2.0
     np.fill_diagonal(dist, 0.0)
@@ -406,14 +399,23 @@ def plot_silhouette(summary):
     plt.close()
 
 def main():
+    global OUT_DIR, FIG_DIR
+    weighted = "--weighted" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--weighted"]
+    matrix_path = args[0] if args else DEFAULT_MATRIX
+    name = "all_genes" if not args else os.path.basename(matrix_path).replace("_matrix.csv", "")
+    if weighted:
+        name += "_length_weighted"
+    OUT_DIR = os.path.join(OUTPUT_DIR, "clustering", name)
+    FIG_DIR = os.path.join(OUT_DIR, "figures")
     os.makedirs(FIG_DIR, exist_ok=True)
-    X = load_matrix()
+    X = load_matrix(matrix_path)
     if X is None:
         return
 
     print(f"Loaded {X.shape[0]} samples and {X.shape[1]} genes")
     print("Computing Jaccard distance")
-    dist = jaccard_distance(X)
+    dist = jaccard_distance(X, weighted)
     empty = int((np.asarray(X).sum(axis=1) == 0).sum())
     print(f"Tumors with no retained mutations: {empty}")
 
