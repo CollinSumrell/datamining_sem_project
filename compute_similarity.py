@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,10 +7,11 @@ import matplotlib.pyplot as plt
 OUTPUT_DIR = "output"
 FIG_DIR = os.path.join(OUTPUT_DIR, "figures")
 TOP_N_GENES = 10
+DEFAULT_MATRIX = os.path.join(OUTPUT_DIR, "combined_matrix.csv")
 
-def load_data():
+def load_data(matrix_path=DEFAULT_MATRIX):
     # for loading the data from csv into a df
-    X = pd.read_csv(os.path.join(OUTPUT_DIR, "combined_matrix.csv"), index_col=0)
+    X = pd.read_csv(matrix_path, index_col=0)
     labels = pd.read_csv(os.path.join(OUTPUT_DIR, "sample_labels.csv"), index_col="sample")
     cohorts = labels.loc[X.index, "cohort"]
     return X, cohorts
@@ -55,11 +57,16 @@ def top_genes(X, cohorts, order):
     return pd.DataFrame(rows, columns=["cohort", "rank", "gene", "fraction_mutated"])
 
 
-def jaccard_matrix(X):
+def jaccard_matrix(X, weights=None):
     # jaccard similarity matrix for every pair of tumors
+    # weights (optional): one num per gene in same order as X cols
     A = X.to_numpy(dtype=np.float32)
-    shared = A @ A.T
-    counts = A.sum(axis=1)
+    if weights is None:
+        w = np.ones(A.shape[1], dtype=np.float32)
+    else:
+        w = np.asarray(weights, dtype=np.float32)
+    shared = (A * w) @ A.T
+    counts = A @ w
     union = counts[:, None] + counts[None, :] - shared
     with np.errstate(divide="ignore", invalid="ignore"):
         sim = shared / union
@@ -123,7 +130,7 @@ def within_vs_between(sim, labels, order):
     summary["within_minus_between"] = summary["mean_within"] - summary["mean_between"]
     return summary.round(4)
 
-def plot_burden(burden, cohorts, order):
+def plot_burden(burden, cohorts, order, fig_dir=FIG_DIR):
     plt.figure(figsize=(6, 4))
     plt.boxplot([burden[cohorts == c] for c in order])
     plt.yscale("symlog", linthresh=1)  
@@ -131,12 +138,12 @@ def plot_burden(burden, cohorts, order):
     plt.ylabel("Genes mutated per tumor")
     plt.title("Mutation burden by cancer type")
     plt.tight_layout()
-    plt.savefig(os.path.join(FIG_DIR, "mutation_burden.png"), dpi=300)
+    plt.savefig(os.path.join(fig_dir, "mutation_burden.png"), dpi=300)
     plt.close()
 
  
 
-def plot_heatmap(table):
+def plot_heatmap(table, fig_dir=FIG_DIR):
     plt.figure(figsize=(5,4))
     plt.imshow(table.to_numpy(), cmap="Blues")
     plt.colorbar(label="Mean Jaccard similarity")
@@ -150,10 +157,10 @@ def plot_heatmap(table):
             plt.text(j, i, f"{value:.4f}", ha="center", va="center", fontsize=9, color=color)
     plt.title("Mean similarity between cancer types")
     plt.tight_layout()
-    plt.savefig(os.path.join(FIG_DIR, "similarity_heatmap.png"), dpi=300)
+    plt.savefig(os.path.join(fig_dir, "similarity_heatmap.png"), dpi=300)
     plt.close()
 
-def plot_within_between(sim, labels, order):
+def plot_within_between(sim, labels, order, fig_dir=FIG_DIR):
     summary = within_vs_between(sim, labels, order)
     rows = summary[summary.cohort != "ALL"]
     x = np.arange(len(rows))
@@ -165,37 +172,46 @@ def plot_within_between(sim, labels, order):
     plt.title("Within- vs between-cohort tumor similarity")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(FIG_DIR, "within_vs_between.png"), dpi=300)
+    plt.savefig(os.path.join(fig_dir, "within_vs_between.png"), dpi=300)
     plt.close()
 
 def main():
-    os.makedirs(FIG_DIR, exist_ok=True)
+    if len(sys.argv) > 1:
+        matrix_path = sys.argv[1]
+        name = os.path.basename(matrix_path).replace("_matrix.csv", "")
+        results_dir = os.path.join(OUTPUT_DIR, "results", name)
+        fig_dir = os.path.join(results_dir, "figures")
+    else:
+        matrix_path = DEFAULT_MATRIX
+        results_dir = OUTPUT_DIR
+        fig_dir = FIG_DIR
+    os.makedirs(fig_dir, exist_ok=True)
 
-    X, cohorts = load_data()
+    X, cohorts = load_data(matrix_path)
     order = list(cohorts.unique())
     labels = cohorts.to_numpy()
     print(f"Loaded {X.shape[0]} samples and {X.shape[1]} genes from {len(order)} cohorts")
 
     stats, burden = summarize_cohorts(X, cohorts, order)
-    stats.to_csv(os.path.join(OUTPUT_DIR, "cohort_stats.csv"), index=False)
+    stats.to_csv(os.path.join(results_dir, "cohort_stats.csv"), index=False)
     print("\nDescriptive stats:\n", stats.to_string(index=False))
 
-    top_genes(X, cohorts, order).to_csv(os.path.join(OUTPUT_DIR, "top_genes.csv"), index=False)
+    top_genes(X, cohorts, order).to_csv(os.path.join(results_dir, "top_genes.csv"), index=False)
 
     sim = jaccard_matrix(X)
 
     table = similarity_by_cohort(sim, labels, order)
-    table.round(4).to_csv(os.path.join(OUTPUT_DIR, "similarity_by_cohort.csv"))
+    table.round(4).to_csv(os.path.join(results_dir, "similarity_by_cohort.csv"))
     print("\nMean similarty by cohort pair:\n", table.round(4).to_string())
 
     summary = within_vs_between(sim, labels, order)
-    summary.to_csv(os.path.join(OUTPUT_DIR, "within_vs_between.csv"), index=False)
+    summary.to_csv(os.path.join(results_dir, "within_vs_between.csv"), index=False)
     print("\nWithin vs between:\n", summary.to_string(index=False))
 
-    plot_burden(burden, cohorts, order)
-    plot_heatmap(table)
-    plot_within_between(sim, labels, order)
-    print(f"\nfigs saved to {FIG_DIR}/")
+    plot_burden(burden, cohorts, order, fig_dir)
+    plot_heatmap(table, fig_dir)
+    plot_within_between(sim, labels, order, fig_dir)
+    print(f"\nfigs saved to {fig_dir}/")
 
 if __name__ == "__main__":
     main()
