@@ -1,15 +1,30 @@
 # Mutation Patterns Across Four Cancers
 
-## Checkpoint 2 Clustering (Preston)
+## Setup
 
-Cancer-type labels are not used. Paths and k are set at the top of `cluster_tumors.py`.
+1. Create the virtual env and install the packages:
 
 ```bash
+python -m venv venv
+source venv/bin/activate # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-python mutation_matrices.py
-python cluster_tumors.py
 ```
 
-Writes `output/clustering/`. Join `assignments.csv` to `output/sample_labels.csv` on `sample`.
+2. Download the data into `data/`. Get the cbioportal stuff from the links in the proposal document, and gencode and hgnc files from the discord
 
-For another 0/1 matrix, change `MATRIX_PATH` and `OUT_DIR`.
+## Running everything
+
+```bash
+chmod +x run_all.sh
+./run_all.sh
+```
+
+## Feature sets
+
+| Name | Tumors | Genes |
+|---|---|---|
+| `all_genes` | all | all |
+| `frequent_genes` | all | mutated in >= 2% of tumors in at least one cohort |
+| `no_hypermutated` | hypermutated tumors removed | all |
+| `frequent_genes_no_hypermutated` | hypermutated tumors removed | frequent genes, recomputed without them |
+| `..._length_weighted` (`--weighted`) | as above | each gene weighted by 1 / coding length |
