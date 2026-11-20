@@ -218,6 +218,13 @@ def main():
     weights = length_weights(X.columns) if weighted else None
     sim = jaccard_matrix(X, weights)
 
+    # Save similarities and matching sample labels for the permutation test.
+    np.savez_compressed(
+        os.path.join(results_dir, "pairwise_similarity.npz"),
+        similarity=sim,
+        samples=X.index.to_numpy(dtype=str),
+        cohorts=cohorts.to_numpy(dtype=str))
+
     table = similarity_by_cohort(sim, labels, order)
     table.round(4).to_csv(os.path.join(results_dir, "similarity_by_cohort.csv"))
     print("\nMean similarty by cohort pair:\n", table.round(4).to_string())
