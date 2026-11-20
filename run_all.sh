@@ -82,8 +82,40 @@ python cluster_tumors.py output/features/no_hypermutated_matrix.csv --weighted
 step "5. Clustering: frequent genes, no hypermutated"
 python cluster_tumors.py output/features/frequent_genes_no_hypermutated_matrix.csv
 
-# --- 5. Add the evaluation and visualization scripts here once they exist, e.g.
-# python evaluate_clusters.py
+
+# --- 5. Permutation tests on all six versions ---
+# These four versions reuse saved similarity scores and use 9,999 permutations
+step "6. Permutation test: all genes"
+python permutation_test.py output/pairwise_similarity.npz
+
+step "6. Permutation test: all genes, length weighted"
+python permutation_test.py output/results/all_genes_length_weighted/pairwise_similarity.npz
+
+step "6. Permutation test: no hypermutated"
+python permutation_test.py output/results/no_hypermutated/pairwise_similarity.npz
+
+step "6. Permutation test: no hypermutated, length weighted"
+python permutation_test.py output/results/no_hypermutated_length_weighted/pairwise_similarity.npz
+
+# Frequent-gene selection uses cancer labels, so repeat gene selection and similarity calculation for each shuffle. Use 499 permutations to limit runtime.
+# (Minimum p-value is 0.002, compared with 0.0001 for the other 4 versions)
+step "6. Permutation test: frequent genes"
+python permutation_test_frequent.py output/combined_matrix.csv --permutations 499
+
+step "6. Permutation test: frequent genes, no hypermutated"
+python permutation_test_frequent.py output/features/no_hypermutated_matrix.csv --permutations 499
+
+# --- 6. Evaluate clustering on the three agreed versions ---
+step "7. Evaluation: all genes"
+python evaluate_clusters.py output/clustering/all_genes
+
+step "7. Evaluation:  no hypermutated (length weighted)"
+python evaluate_clusters.py output/clustering/no_hypermutated_length_weighted
+
+step "7. Evaluation: frequent genes, no hypermutated"
+python evaluate_clusters.py output/clustering/frequent_genes_no_hypermutated
+
+# Add visualization scripts here once they exist, e.g.
 # python visualize.py
 
 step "Done"
